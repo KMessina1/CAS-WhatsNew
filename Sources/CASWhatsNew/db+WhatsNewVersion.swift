@@ -2,8 +2,8 @@
      File: db+WhatsNewVersion.swift
    Author: Kevin Messina
   Created: 9/11/25
- Modified: 08/23/2026 09:40 AM EDT
-  Version: 4
+ Modified: 11/01/2026 11:54 AM EST
+  Version: 5
    Source: CODEX: (GPT-5) 🤖AI Code a portion or all of this code.
 
 ©2026 Creative App Solutions, LLC. - All Rights Reserved.
@@ -40,70 +40,51 @@ public struct WhatsNewVersion: Codable, Equatable, Hashable, Identifiable, Fetch
     }
     
     // MARK: - *** DB Functions ***
-    public func getFromID(
-        _ id: Int64,
-        dbQueue: DatabaseQueue,
-        logLFFL: String
-    ) -> WhatsNewVersion {
-        var rec: WhatsNewVersion = WhatsNewVersion()
-        
-        do {
-            try dbQueue.read { tableRecs in
-                try rec = WhatsNewVersion.fetchOne(tableRecs, id: id) ?? WhatsNewVersion()
-            }
-            
-            SimPrint.Info("WHATS NEW VERSION: Fetched record ID: \(id) from \(dbTableName).", action: .success, log: logLFFL)
-        } catch {
-            SimPrint.Info("WHATS NEW VERSION: Fetch failed for \(dbTableName).", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+    /// Returns nil only when a valid record ID is absent; database failures are thrown.
+    public func getFromID(_ id: Int64, dbQueue: DatabaseQueue, logLFFL: String) throws -> WhatsNewVersion? {
+        guard id >= 0 else {
+            throw NSError(domain: "WhatsNewVersion", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid version record ID: \(id)."])
         }
-        
-        return rec
-    }
-    
-    public func getLatestVersion(
-        dbQueue: DatabaseQueue,
-        logLFFL: String
-    ) -> Double {
-        var rec: WhatsNewVersion = WhatsNewVersion()
-        
         do {
-            try dbQueue.read { tableRecs in
-                try rec = WhatsNewVersion.fetchOne(tableRecs) ?? WhatsNewVersion()
-            }
-            
-            SimPrint.Info("WHATS NEW VERSION: Fetched latest version from \(dbTableName).", action: .success, log: logLFFL)
+            let record = try dbQueue.read { try WhatsNewVersion.fetchOne($0, id: id) }
+            SimPrint.Info("WhatsNewVersion: Found \(record == nil ? 0 : 1) record for ID \(id).", action: .success, log: logLFFL)
+            return record
         } catch {
-            SimPrint.Info("WHATS NEW VERSION: Fetch latest failed for \(dbTableName).", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+            SimPrint.Info("WhatsNewVersion: Fetch failed.", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+            throw error
         }
-        
-        return rec.version
     }
-    
-    public func getAll(
-        dbQueue: DatabaseQueue,
-        logLFFL: String
-    ) -> [WhatsNewVersion] {
-        var recs: [WhatsNewVersion] = []
-        
+
+    /// Returns nil for an empty Version table, rather than fabricating version zero.
+    public func getLatestVersion(dbQueue: DatabaseQueue, logLFFL: String) throws -> Double? {
         do {
-            try dbQueue.read { tableRecs in
-                try recs = WhatsNewVersion.order(Columns.version.asc).fetchAll(tableRecs)
-            }
-            
-            SimPrint.Info("WHATS NEW VERSION: Fetched \(recs.count) records from \(dbTableName).", action: .success, log: logLFFL)
+            let record = try dbQueue.read { try WhatsNewVersion.order(Columns.version.desc, Columns.id.desc).fetchOne($0) }
+            return record.map { Double($0.version) }
         } catch {
-            SimPrint.Info("WHATS NEW VERSION: Fetch all failed for \(dbTableName).", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+            SimPrint.Info("WhatsNewVersion: Latest version fetch failed.", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+            throw error
         }
-        
-        return recs
     }
-    
+
+    public func getAll(dbQueue: DatabaseQueue, logLFFL: String) throws -> [WhatsNewVersion] {
+        do {
+            return try dbQueue.read { try WhatsNewVersion.order(Columns.version.asc, Columns.id.asc).fetchAll($0) }
+        } catch {
+            SimPrint.Info("WhatsNewVersion: Fetch all failed.", action: .error, errorMsg: error.localizedDescription, log: logLFFL)
+            throw error
+        }
+    }
+
     @discardableResult
     public func saveUpdate(
         _ item: WhatsNewVersion,
         dbQueue: DatabaseQueue,
         logLFFL: String
     ) -> Bool {
+        guard let id = item.id, id >= 0 else {
+            SimPrint.Info("A valid existing version record ID is required for update.", action: .error, log: logLFFL)
+            return false
+        }
         do {
             try dbQueue.write { tableRecs in
                 try item.update(tableRecs)
@@ -124,9 +105,17 @@ public struct WhatsNewVersion: Codable, Equatable, Hashable, Identifiable, Fetch
         dbQueue: DatabaseQueue,
         logLFFL: String
     ) -> Bool {
+        guard id >= 0 else {
+            SimPrint.Info("Invalid required version ID: \(id).", action: .error, log: logLFFL)
+            return false
+        }
         do {
-            try dbQueue.write { tableRecs in
+            let deleted = try dbQueue.write { tableRecs in
                 try WhatsNewVersion.deleteOne(tableRecs, id: id)
+            }
+            guard deleted else {
+                SimPrint.Info("Version record ID \(id) was not found for deletion.", action: .error, log: logLFFL)
+                return false
             }
             
             SimPrint.Info("WHATS NEW VERSION: Deleted record ID: \(id) from \(dbTableName).", action: .success, log: logLFFL)

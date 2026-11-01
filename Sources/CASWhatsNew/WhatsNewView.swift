@@ -2,8 +2,8 @@
      File: WhatsNewView.swift
    Author: Kevin Messina
   Created: Mar 19, 2021
- Modified: 08/22/2026 06:48 PM EDT
-  Version: 2
+ Modified: 11/01/2026 11:54 AM EST
+  Version: 3
    Source: CODEX: (GPT-5) 🤖AI Code a portion or all of this code.
 
 ©2026 Creative App Solutions, LLC. - All Rights Reserved.
@@ -29,7 +29,9 @@ public struct WhatsNewView: View {
 
     @State var WhatsNewItems:[WhatsNewItem] = []
     @State var filteredItems:[WhatsNewItem] = []
-    @State var versions:[String] = []
+    @State var versions:[Double] = []
+    @State private var loadError: String?
+    @State private var hasLoaded = false
     @State var adjustAlignment: Bool = false
     @State var currentVersion: Double = 0.0
     @State var limitVersionsTo: Int = 3
@@ -55,43 +57,36 @@ public struct WhatsNewView: View {
     }
     
     func loadBasicData() -> Void {
-        guard let dbQueue else { return }
-
-        let table: String = WhatsNewItem.databaseTableName
-        
+        loadError = nil
+        hasLoaded = false
         WhatsNewItems.removeAll()
-        
+        versions.removeAll()
+        filteredItems.removeAll()
+        guard let dbQueue else {
+            loadError = "A database queue must be supplied to display release notes."
+            hasLoaded = true
+            return
+        }
+        defer { hasLoaded = true }
+        let table = WhatsNewItem.databaseTableName
         do {
-            try dbQueue.read { dbTable in
-                WhatsNewItems = try WhatsNewItem.fetchAll(dbTable,
-                    WhatsNewItem.order(Column("version"), Column("sortOrder"))
-                )
-                
-                versions.removeAll()
-                for item in WhatsNewItems {
-                    if versions.count > limitVersionsTo {
-                        break
-                    }else{
-                        if !versions.contains(String(item.version)) {
-                            versions.append(String(item.version))
-                        }
-                    }
-                }
-                
-                versions = versions.sorted().reversed()
-
-                currentVersion = Double(versions[0]) ?? -1.0
-
-                filterVersions()
-                
-                SimPrint.Info("WHATS NEW: Fetched \(WhatsNewItems.count) records from \(table).", action: .success, log: LFFL())
+            WhatsNewItems = try dbQueue.read {
+                try WhatsNewItem.order(Column("version").desc, Column("sortOrder").asc, Column("id").asc).fetchAll($0)
             }
+            versions = WhatsNewItem.recentVersions(in: WhatsNewItems, limit: limitVersionsTo)
+            guard let latest = versions.first else {
+                currentVersion = 0
+                return
+            }
+            currentVersion = latest
+            filterVersions()
+            SimPrint.Info("WHATS NEW: Fetched \(WhatsNewItems.count) records from \(table).", action: .success, log: LFFL())
         } catch {
+            loadError = error.localizedDescription
             SimPrint.Info("WHATS NEW: Fetch failed for \(table).", action: .error, errorMsg: error.localizedDescription, log: LFFL())
-            print("\(error)")
         }
     }
-    
+
     func filterVersions() {
         filteredItems = WhatsNewItems.filter{ $0.version == currentVersion }
     }
@@ -125,8 +120,8 @@ public struct WhatsNewView: View {
             
             Menu {
                 ForEach(versions, id: \.self) { item in
-                    Button("v\(item)\(Double(item) == currentVersion ?" (Current)" :"")") {
-                        currentVersion = Double(item) ?? -1.0
+                    Button("v\(item)\(item == currentVersion ?" (Current)" :"")") {
+                        currentVersion = item
                         filterVersions()
                     }
                 }
@@ -173,7 +168,19 @@ public struct WhatsNewView: View {
                         spacing: isCompact ?5 :deviceIs().PadLandscape ?25 :50,
                         pinnedViews: [.sectionHeaders, .sectionFooters]
                     ) {
-                        if filteredItems.count < 1 {
+                        if let loadError {
+                            ContentUnavailableView {
+                                Label("Unable to Load Release Notes", systemImage: "exclamationmark.triangle")
+                            } description: {
+                                Text(loadError)
+                            } actions: {
+                                Button("Retry") { loadBasicData() }
+                            }
+                            .foregroundStyle(CT.fair)
+                        } else if !hasLoaded {
+                            ProgressView("Loading Release Notes...")
+                                .tint(CT.fair)
+                        } else if filteredItems.count < 1 {
                             noContentView(title: "No items found for this version.", icon: "list.bullet.rectangle.fill")
                         }else{
                             ForEach(filteredItems, id: \.id) { WNItem in
@@ -228,7 +235,7 @@ public struct WhatsNewView: View {
                         Menu {
                             Section(header: Text("CURRENT VERSION")) {
                                 Button {
-                                    currentVersion = Double(versions[0])!
+                                    currentVersion = versions[0]
                                     filterVersions()
                                 } label: {
                                     Text("v\(versions[0])")
@@ -236,8 +243,9 @@ public struct WhatsNewView: View {
                             }
                             
                             Section(header: Text("PRIOR VERSIONS")) {
-                                ForEach(versions, id: \.self) { item in
+                                ForEach(versions.filter { $0 != versions.first }, id: \.self) { item in
                                     Button("v\(item)") {
+                                        currentVersion = item
                                         filterVersions()
                                     }
                                 }

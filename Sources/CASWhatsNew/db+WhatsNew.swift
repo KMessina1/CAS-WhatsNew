@@ -1,13 +1,15 @@
-/*--------------------------------------------------------------------------------------------------------------------------
-    File: db_WhatsNew.swift
-  Author: Kevin Messina
- Created: 6/7/25
-Modified:
+/*-------------------------------------------------------------------------------------------------------------------------
+     File: db+WhatsNew.swift
+   Author: Kevin Messina
+  Created: 6/7/25
+ Modified: 11/01/2026 11:54 AM EST
+  Version: 1
+   Source: CODEX: (GPT-5) 🤖AI Code a portion or all of this code.
  
-©2025-2026 Creative App Solutions, LLC. - All Rights Reserved.
-----------------------------------------------------------------------------------------------------------------------------
+©2026 Creative App Solutions, LLC. - All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------
 NOTES:
---------------------------------------------------------------------------------------------------------------------------*/
+-------------------------------------------------------------------------------------------------------------------------*/
 
 import Foundation
 import GRDB
@@ -43,6 +45,10 @@ struct WhatsNewItem: Codable, Equatable, FetchableRecord, MutablePersistableReco
         static let iconName = Column(CodingKeys.iconName)
     }
     
+    static func recentVersions(in items: [WhatsNewItem], limit: Int) -> [Double] {
+        Array(Set(items.map(\.version).filter(\.isFinite)).sorted(by: >).prefix(max(0, limit)))
+    }
+
     mutating func didInsert(with rowID: Int64, for column: String?) {
         id = rowID
     }
